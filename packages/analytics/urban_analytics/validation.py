@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 import numpy as np
 import pandas as pd
@@ -65,4 +65,4 @@ def grouped_random_forest_validation(
             )
         )
 
-    return pd.DataFrame([metric.__dict__ for metric in rows])
+    return pd.DataFrame([asdict(metric) for metric in rows])

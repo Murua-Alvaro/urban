@@ -6,10 +6,20 @@ from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.exc import SQLAlchemyError
 
 from .ingestion import ingest_zip
+from .repository import persist_manifest
 
 app = FastAPI(title="Urban API", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
@@ -30,13 +40,18 @@ def upload_dataset(file: UploadFile = File(...)) -> dict:
             shutil.copyfileobj(file.file, temp)
 
         manifest = ingest_zip(temp_path, filename)
+        canonical_dataset_id = persist_manifest(manifest)
+        payload = asdict(manifest)
+        payload["dataset_id"] = canonical_dataset_id
         return {
-            "status": "ingested",
-            "dataset": asdict(manifest),
+            "status": "persisted",
+            "dataset": payload,
             "next": "map fields to canonical Urban schema",
         }
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=503, detail="Dataset validated but database persistence failed") from exc
     finally:
         if temp_path is not None:
             temp_path.unlink(missing_ok=True)

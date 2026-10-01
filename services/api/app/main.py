@@ -7,9 +7,11 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 
 from .ingestion import ingest_zip
+from .normalization import normalize_asset
 from .repository import persist_manifest
 
 app = FastAPI(title="Urban API", version="0.1.0")
@@ -20,6 +22,10 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+
+class NormalizeRequest(BaseModel):
+    asset_path: str
 
 
 @app.get("/health")
@@ -46,7 +52,7 @@ def upload_dataset(file: UploadFile = File(...)) -> dict:
         return {
             "status": "persisted",
             "dataset": payload,
-            "next": "map fields to canonical Urban schema",
+            "next": "normalize one or more tabular assets into the canonical Urban schema",
         }
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -55,3 +61,14 @@ def upload_dataset(file: UploadFile = File(...)) -> dict:
     finally:
         if temp_path is not None:
             temp_path.unlink(missing_ok=True)
+
+
+@app.post("/v1/datasets/{dataset_id}/normalize")
+def normalize_dataset_asset(dataset_id: str, request: NormalizeRequest) -> dict:
+    try:
+        report = normalize_asset(dataset_id, request.asset_path)
+        return {"status": "normalized", "report": asdict(report)}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=503, detail="Normalization completed but persistence failed") from exc

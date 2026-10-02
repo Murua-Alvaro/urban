@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
 
-MODULE_PATH = Path(__file__).resolve().parents[2] / "scripts" / "denue" / "panel.py"
-spec = importlib.util.spec_from_file_location("denue_panel", MODULE_PATH)
-panel = importlib.util.module_from_spec(spec)
-assert spec and spec.loader
-spec.loader.exec_module(panel)
+MODULE_DIR = Path(__file__).resolve().parents[2] / "scripts" / "denue"
+if str(MODULE_DIR) not in sys.path:
+    sys.path.insert(0, str(MODULE_DIR))
+
+import panel  # noqa: E402
 
 
 def test_payload_is_weighted_and_flags_are_decoded() -> None:

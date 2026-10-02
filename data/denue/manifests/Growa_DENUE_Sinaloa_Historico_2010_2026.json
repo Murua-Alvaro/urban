@@ -1,0 +1,29 @@
+{
+  "dataset": "DENUE Sinaloa Histórico - panel territorial derivado",
+  "archive_filename": "Growa_DENUE_Sinaloa_Historico_2010_2026.zip",
+  "expected_repository_path": "data/denue/raw/Growa_DENUE_Sinaloa_Historico_2010_2026.zip",
+  "source_attachment_filename": "Growa_DENUE_Sinaloa_Historico_2010_2026_GitHub(1).zip",
+  "archive_size_bytes": 14147652,
+  "sha256": "182c22a2a96189e47d4e0d6b5dfd2a34a09307cfa3af57b1503664cdecc1bff3",
+  "coverage": {
+    "state": "Sinaloa",
+    "first_edition": "2010",
+    "last_edition": "2026-05",
+    "edition_count": 25
+  },
+  "audit": {
+    "zip_integrity": "passed",
+    "schema_consistency": "passed",
+    "municipal_totals_consistency": "passed",
+    "state_totals_consistency": "passed",
+    "duplicate_grouped_rows": 0,
+    "classification": "derived_territorial_panel",
+    "not_raw_denue": true,
+    "notes": [
+      "The archive contains processed/aggregated DENUE data rather than the complete establishment-level raw DENUE releases.",
+      "Postal-code anomalies and missing territorial assignments should be quality-flagged before econometric use.",
+      "Major DENUE census rebenchmark editions should be modeled explicitly in longitudinal analysis."
+    ]
+  },
+  "status": "audited_pending_binary_commit"
+}

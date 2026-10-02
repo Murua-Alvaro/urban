@@ -136,13 +136,22 @@ def build_features(df: pd.DataFrame, level: str) -> tuple[pd.DataFrame, pd.DataF
 
 def add_grid_dynamics(features: pd.DataFrame) -> pd.DataFrame:
     keys = ["municipality_code", "grid"]
-    editions = (
-        features[["source_edition", "edition_date"]]
+
+    # Balance fixed 1-km grids only over editions in which the municipality is
+    # actually present in DENUE. This avoids fabricating zero-stock history for
+    # municipalities that first appear as separate units in 2025.
+    geos = features[["municipality_code", "municipality_name", "grid"]].drop_duplicates()
+    municipality_editions = (
+        features[["municipality_code", "municipality_name", "source_edition", "edition_date"]]
         .drop_duplicates()
-        .sort_values("edition_date")
+        .sort_values(["municipality_code", "edition_date"])
     )
-    geos = features[keys + ["municipality_name"]].drop_duplicates()
-    balanced = geos.assign(_key=1).merge(editions.assign(_key=1), on="_key").drop(columns="_key")
+    balanced = geos.merge(
+        municipality_editions,
+        on=["municipality_code", "municipality_name"],
+        how="inner",
+        validate="many_to_many",
+    )
     balanced = balanced.merge(
         features,
         on=["source_edition", "edition_date", "municipality_code", "municipality_name", "grid"],

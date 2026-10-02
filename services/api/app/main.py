@@ -9,10 +9,11 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import SQLAlchemyError
 
+from .denue_routes import router as denue_router
 from .ingestion import ingest_zip
 from .repository import persist_manifest
 
-app = FastAPI(title="Urban API", version="0.1.0")
+app = FastAPI(title="Urban API", version="0.2.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
@@ -20,6 +21,7 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+app.include_router(denue_router)
 
 
 @app.get("/health")

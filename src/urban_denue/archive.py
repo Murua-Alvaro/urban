@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import shutil
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -46,6 +47,15 @@ def acquire_archive(destination: Path, url: str = ARCHIVE_URL, force: bool = Fal
             shutil.copyfileobj(response, out, length=1024 * 1024)
         verify_archive(tmp)
         tmp.replace(destination)
+    except urllib.error.HTTPError as exc:
+        tmp.unlink(missing_ok=True)
+        if exc.code == 404:
+            raise FileNotFoundError(
+                "DENUE archive is not yet present in GitHub at: "
+                f"{url}. Upload the audited ZIP to data/denue/raw/ on branch "
+                "data/denue-historico, or use the Colab notebook manual-upload fallback."
+            ) from exc
+        raise
     except Exception:
         tmp.unlink(missing_ok=True)
         raise

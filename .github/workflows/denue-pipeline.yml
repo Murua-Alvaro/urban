@@ -10,8 +10,6 @@ on:
   push:
     paths:
       - 'data/denue/raw/Growa_DENUE_Sinaloa_Historico_2010_2026.zip'
-      - 'src/urban_denue/**'
-      - 'scripts/denue/**'
 
 jobs:
   pipeline:

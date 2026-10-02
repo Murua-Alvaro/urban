@@ -1,0 +1,63 @@
+name: DENUE pipeline
+
+on:
+  push:
+    paths:
+      - "scripts/denue/**"
+      - "tests/denue/**"
+      - "requirements-denue*.txt"
+      - "data/denue/**"
+      - ".github/workflows/denue-pipeline.yml"
+  pull_request:
+    paths:
+      - "scripts/denue/**"
+      - "tests/denue/**"
+      - "requirements-denue*.txt"
+      - "data/denue/**"
+      - ".github/workflows/denue-pipeline.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements-denue-analysis.txt
+      - name: Unit tests
+        run: pytest -q tests/denue
+      - name: Integration validation when audited ZIP is present
+        shell: bash
+        run: |
+          ARCHIVE="data/denue/raw/Growa_DENUE_Sinaloa_Historico_2010_2026.zip"
+          if [[ ! -f "$ARCHIVE" ]]; then
+            echo "Audited DENUE ZIP is not present on this branch; skipping full integration pipeline."
+            exit 0
+          fi
+          mkdir -p var/denue
+          cp "$ARCHIVE" var/denue/Growa_DENUE_Sinaloa_Historico_2010_2026.zip
+          python scripts/denue/fetch_archive.py \
+            --archive var/denue/Growa_DENUE_Sinaloa_Historico_2010_2026.zip \
+            --extract
+          python scripts/denue/validate_dataset.py
+          python scripts/denue/build_panel.py
+          python scripts/denue/run_eda.py
+          python scripts/denue/territorial_features.py --level grid
+          python scripts/denue/territorial_features.py --level ageb
+      - name: Upload validation and EDA artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: denue-validation-eda
+          if-no-files-found: ignore
+          path: |
+            var/denue/validation_report.json
+            var/denue/processed/inventory.csv
+            var/denue/eda/*.csv
+            var/denue/eda/*.png
+            var/denue/analysis/grid_transitions.csv

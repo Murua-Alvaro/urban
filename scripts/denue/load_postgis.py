@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -40,9 +39,9 @@ def validate_data_root(root: Path) -> Path:
 
 def apply_migration(conn: psycopg.Connection, migration: Path) -> None:
     sql = migration.read_text(encoding="utf-8")
-    with conn.cursor() as cur:
-        cur.execute(sql)
-    conn.commit()
+    with conn.transaction():
+        with conn.cursor() as cur:
+            cur.execute(sql)
 
 
 def load_grids(conn: psycopg.Connection, data: Path) -> int:
@@ -64,9 +63,9 @@ def load_grids(conn: psycopg.Connection, data: Path) -> int:
         ON CONFLICT (municipality_code, grid_id) DO UPDATE
         SET geom = EXCLUDED.geom, metadata = EXCLUDED.metadata
     """
-    with conn.cursor() as cur:
-        cur.executemany(sql, rows)
-    conn.commit()
+    with conn.transaction():
+        with conn.cursor() as cur:
+            cur.executemany(sql, rows)
     return len(rows)
 
 
@@ -102,10 +101,11 @@ def upsert_edition(conn: psycopg.Connection, edition: str, metadata: dict) -> No
 
 
 def replace_edition(conn: psycopg.Connection, edition: str, payload: dict) -> tuple[int, int]:
-    municipality_count = 0
     establishment_count = 0
     row_count = 0
 
+    # With autocommit=True this block is one independent all-or-nothing transaction
+    # for the edition. A malformed municipality rolls back only this edition.
     with conn.transaction():
         upsert_edition(conn, edition, {"derived_territorial_panel": True})
         with conn.cursor() as cur:
@@ -120,7 +120,6 @@ def replace_edition(conn: psycopg.Connection, edition: str, payload: dict) -> tu
                 for municipality_code, municipal in payload.items():
                     if municipal.get("fields") != EXPECTED_FIELDS:
                         raise ValueError(f"Unexpected schema in {edition}/{municipality_code}: {municipal.get('fields')}")
-                    municipality_count += 1
                     municipal_sum = 0
                     for row in municipal.get("rows", []):
                         ageb, grid, sector, size_band, scian6, postal_code, flags, n = row
@@ -189,7 +188,7 @@ def main() -> int:
         raise SystemExit("DATABASE_URL or --database-url is required")
     data = validate_data_root(args.root)
 
-    with psycopg.connect(args.database_url) as conn:
+    with psycopg.connect(args.database_url, autocommit=True) as conn:
         if args.apply_migration:
             apply_migration(conn, args.migration)
         if not args.skip_grids:

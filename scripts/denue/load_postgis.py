@@ -8,6 +8,8 @@ from uuid import UUID
 
 import psycopg
 
+from catalog_postgis import load_municipality_catalog
+
 ARCHIVE_SHA256 = "182c22a2a96189e47d4e0d6b5dfd2a34a09307cfa3af57b1503664cdecc1bff3"
 ARCHIVE_FILENAME = "Growa_DENUE_Sinaloa_Historico_2010_2026.zip"
 EXPECTED_FIELDS = ["ageb", "grid", "sector", "size", "class", "cp", "flags", "n"]
@@ -144,8 +146,6 @@ def replace_edition(conn: psycopg.Connection, dataset_id: UUID, edition: str, pa
     establishment_count = 0
     row_count = 0
 
-    # With autocommit=True this block is one independent all-or-nothing transaction
-    # for the edition. A malformed municipality rolls back only this edition.
     with conn.transaction():
         upsert_edition(conn, dataset_id, edition, {"derived_territorial_panel": True})
         with conn.cursor() as cur:
@@ -198,6 +198,10 @@ def verify_database(conn: psycopg.Connection, dataset_id: UUID) -> None:
         edition_count = int(cur.fetchone()[0])
         if edition_count != 25:
             raise ValueError(f"Edition registry mismatch: {edition_count} != 25")
+        cur.execute("SELECT COUNT(*) FROM geographies WHERE geography_type = 'municipality' AND geokey LIKE '25\\_%' ESCAPE '\\'")
+        municipality_count = int(cur.fetchone()[0])
+        if municipality_count < 20:
+            raise ValueError(f"Municipality catalog incomplete: {municipality_count} < 20")
         for edition, total in expected.items():
             cur.execute(
                 "SELECT COALESCE(SUM(establishments), 0) FROM denue_observations WHERE source_edition = %s",
@@ -238,6 +242,9 @@ def main() -> int:
         dataset_id = ensure_dataset(conn)
         print(f"Dataset registry id: {dataset_id}")
 
+        municipalities = load_municipality_catalog(conn, data)
+        print(f"Upserted {municipalities:,} municipality catalog records")
+
         if not args.skip_grids:
             grids = load_grids(conn, data)
             print(f"Upserted {grids:,} municipality-grid geometries")
@@ -245,7 +252,6 @@ def main() -> int:
         for edition in sorted(EDITION_DATES, key=lambda key: EDITION_DATES[key]):
             current = edition_existing_count(conn, edition)
             if current and not args.replace:
-                # Even a skipped edition is re-linked to the audited dataset and canonical metadata.
                 with conn.transaction():
                     upsert_edition(conn, dataset_id, edition, {"derived_territorial_panel": True})
                 print(f"skip {edition}: already stores {current:,} establishments")
@@ -255,7 +261,7 @@ def main() -> int:
             print(f"loaded {edition}: {rows:,} grouped rows / {establishments:,} establishments")
 
         verify_database(conn, dataset_id)
-        print("Database smoke totals and provenance verified.")
+        print("Database smoke totals, catalog and provenance verified.")
     return 0
 
 

@@ -6,28 +6,52 @@ import subprocess
 import sys
 from pathlib import Path
 
-VALID_STAGES = ("load", "validate", "clean", "eda", "spatial", "features", "all")
+PIPELINE_STAGES = ("load", "validate", "clean", "eda", "spatial", "features")
+VALID_STAGES = PIPELINE_STAGES + ("model", "all")
+
+
+def _run(cmd: list[str], env: dict[str, str]) -> None:
+    print("Running:", " ".join(cmd), flush=True)
+    subprocess.run(cmd, env=env, check=True)
 
 
 def run(stage: str, root: Path, skip_moran: bool = True) -> int:
     if stage not in VALID_STAGES:
         raise ValueError(f"Unknown stage: {stage}")
 
-    cmd = [
+    env = os.environ.copy()
+    env["DENUE_ROOT"] = str(root)
+
+    if stage in PIPELINE_STAGES:
+        cmd = [
+            sys.executable,
+            "scripts/denue/run_pipeline.py",
+            "--root",
+            str(root),
+            "--through",
+            stage,
+        ]
+        if skip_moran and stage in {"spatial", "features"}:
+            cmd.append("--skip-moran")
+        _run(cmd, env)
+        return 0
+
+    # Modeling requires the full feature store first.
+    pipeline_cmd = [
         sys.executable,
         "scripts/denue/run_pipeline.py",
         "--root",
         str(root),
         "--through",
-        stage,
+        "all",
     ]
-    if skip_moran and stage in {"spatial", "features", "all"}:
-        cmd.append("--skip-moran")
+    if skip_moran:
+        pipeline_cmd.append("--skip-moran")
+    _run(pipeline_cmd, env)
 
-    env = os.environ.copy()
-    env["DENUE_ROOT"] = str(root)
-    print("Running:", " ".join(cmd), flush=True)
-    return subprocess.call(cmd, env=env)
+    model_cmd = [sys.executable, "scripts/denue/model.py", "--root", str(root)]
+    _run(model_cmd, env)
+    return 0
 
 
 def main() -> int:

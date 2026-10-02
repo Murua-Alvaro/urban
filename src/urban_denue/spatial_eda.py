@@ -34,10 +34,7 @@ def add_grid_area(geometry: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     for _, group in geometry.groupby("municipality_key"):
         group = group.copy()
         utm = group.estimate_utm_crs()
-        if utm is None:
-            group["area_km2"] = np.nan
-        else:
-            group["area_km2"] = group.to_crs(utm).geometry.area / 1_000_000
+        group["area_km2"] = np.nan if utm is None else group.to_crs(utm).geometry.area / 1_000_000
         parts.append(group)
     return gpd.GeoDataFrame(pd.concat(parts, ignore_index=True), geometry="geometry", crs="EPSG:4326")
 
@@ -51,12 +48,16 @@ def _complete_panel(frame: pd.DataFrame, geography: str) -> pd.DataFrame:
         ], dropna=False)["establishments"]
         .sum().rename("establishments").reset_index()
     )
-    editions = frame[["canonical_edition", "edition_date", "rebenchmark"]].drop_duplicates().sort_values("edition_date")
     outputs: list[pd.DataFrame] = []
     for muni_key, group in totals.groupby("municipality_key"):
         meta = group[["municipality_key", "municipality_code", "municipality_name"]].drop_duplicates().iloc[0]
+        municipality_editions = (
+            frame.loc[frame["municipality_key"].eq(muni_key), ["canonical_edition", "edition_date", "rebenchmark"]]
+            .drop_duplicates()
+            .sort_values("edition_date")
+        )
         geos = pd.DataFrame({geography: sorted(group[geography].dropna().astype(str).unique())})
-        cross = editions.assign(_k=1).merge(geos.assign(_k=1), on="_k").drop(columns="_k")
+        cross = municipality_editions.assign(_k=1).merge(geos.assign(_k=1), on="_k").drop(columns="_k")
         cross["municipality_key"] = muni_key
         cross["municipality_code"] = meta["municipality_code"]
         cross["municipality_name"] = meta["municipality_name"]
@@ -79,8 +80,7 @@ def _complete_panel(frame: pd.DataFrame, geography: str) -> pd.DataFrame:
     out["transition_rebenchmark"] = out["rebenchmark"].astype(bool)
     first = out.loc[out["active"]].groupby(["municipality_key", geography])["edition_date"].min().rename("first_active_date")
     last = out.loc[out["active"]].groupby(["municipality_key", geography])["edition_date"].max().rename("last_active_date")
-    out = out.merge(first, on=["municipality_key", geography], how="left").merge(last, on=["municipality_key", geography], how="left")
-    return out
+    return out.merge(first, on=["municipality_key", geography], how="left").merge(last, on=["municipality_key", geography], how="left")
 
 
 def grid_panel(frame: pd.DataFrame) -> pd.DataFrame:
@@ -103,14 +103,7 @@ def geography_diversity(frame: pd.DataFrame, geography: str) -> pd.DataFrame:
         hhi = float(np.square(p).sum()) if total > 0 else np.nan
         shannon = float(-(positive * np.log(positive)).sum()) if total > 0 else np.nan
         row = dict(zip(keys, values))
-        row.update({
-            "establishments": int(total),
-            "sectors": int((counts > 0).sum()),
-            "scian6_classes": int(group.loc[group["establishments"] > 0, "scian6"].nunique()),
-            "sector_hhi": hhi,
-            "sector_shannon": shannon,
-            "effective_sectors": float(np.exp(shannon)) if np.isfinite(shannon) else np.nan,
-        })
+        row.update({"establishments": int(total), "sectors": int((counts > 0).sum()), "scian6_classes": int(group.loc[group["establishments"] > 0, "scian6"].nunique()), "sector_hhi": hhi, "sector_shannon": shannon, "effective_sectors": float(np.exp(shannon)) if np.isfinite(shannon) else np.nan})
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -127,32 +120,19 @@ def _gini(values: np.ndarray) -> float:
 
 def polycentricity_summary(grid: pd.DataFrame) -> pd.DataFrame:
     rows: list[dict] = []
-    for values, group in grid.groupby(["canonical_edition", "edition_date", "municipality_key", "municipality_code", "municipality_name"], dropna=False):
+    keys = ["canonical_edition", "edition_date", "municipality_key", "municipality_code", "municipality_name"]
+    for values, group in grid.groupby(keys, dropna=False):
         active = group.loc[group["establishments"] > 0, "establishments"].astype(float).sort_values(ascending=False)
         total = active.sum()
-        row = dict(zip(["canonical_edition", "edition_date", "municipality_key", "municipality_code", "municipality_name"], values))
+        row = dict(zip(keys, values))
         if total <= 0:
             row.update({"active_grids": 0, "grid_hhi": np.nan, "effective_hhi_grids": np.nan, "effective_entropy_grids": np.nan, "top1_share": np.nan, "top5_share": np.nan, "top10_share": np.nan, "grid_gini": np.nan, "rank_size_slope": np.nan})
         else:
             p = active / total
             hhi = float(np.square(p).sum())
             entropy = float(-(p * np.log(p)).sum())
-            if len(active) >= 3:
-                ranks = np.arange(1, len(active) + 1, dtype=float)
-                slope = float(np.polyfit(np.log(ranks), np.log(active.to_numpy()), 1)[0])
-            else:
-                slope = np.nan
-            row.update({
-                "active_grids": int(len(active)),
-                "grid_hhi": hhi,
-                "effective_hhi_grids": float(1 / hhi) if hhi > 0 else np.nan,
-                "effective_entropy_grids": float(np.exp(entropy)),
-                "top1_share": float(active.head(1).sum() / total),
-                "top5_share": float(active.head(5).sum() / total),
-                "top10_share": float(active.head(10).sum() / total),
-                "grid_gini": _gini(active.to_numpy()),
-                "rank_size_slope": slope,
-            })
+            slope = float(np.polyfit(np.log(np.arange(1, len(active) + 1, dtype=float)), np.log(active.to_numpy()), 1)[0]) if len(active) >= 3 else np.nan
+            row.update({"active_grids": int(len(active)), "grid_hhi": hhi, "effective_hhi_grids": float(1 / hhi) if hhi > 0 else np.nan, "effective_entropy_grids": float(np.exp(entropy)), "top1_share": float(active.head(1).sum() / total), "top5_share": float(active.head(5).sum() / total), "top10_share": float(active.head(10).sum() / total), "grid_gini": _gini(active.to_numpy()), "rank_size_slope": slope})
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -160,10 +140,10 @@ def polycentricity_summary(grid: pd.DataFrame) -> pd.DataFrame:
 def global_moran_by_municipality(grid: pd.DataFrame, geometry: gpd.GeoDataFrame, permutations: int = 499, seed: int = 20261002) -> pd.DataFrame:
     from esda.moran import Moran
     from libpysal.weights import Queen
-
     rows: list[dict] = []
     np.random.seed(seed)
-    for values, group in grid.groupby(["canonical_edition", "edition_date", "municipality_key", "municipality_code", "municipality_name"], dropna=False):
+    keys = ["canonical_edition", "edition_date", "municipality_key", "municipality_code", "municipality_name"]
+    for values, group in grid.groupby(keys, dropna=False):
         active = group.loc[group["establishments"] > 0, ["grid_analysis", "establishments"]]
         geo = geometry.loc[geometry["municipality_key"].eq(values[2])].merge(active, on="grid_analysis", how="inner")
         if len(geo) < 3:
@@ -176,7 +156,7 @@ def global_moran_by_municipality(grid: pd.DataFrame, geometry: gpd.GeoDataFrame,
             moran = Moran(geo["establishments"].to_numpy(dtype=float), weights, permutations=permutations)
         except Exception:
             continue
-        row = dict(zip(["canonical_edition", "edition_date", "municipality_key", "municipality_code", "municipality_name"], values))
+        row = dict(zip(keys, values))
         row.update({"n_grids": int(len(geo)), "moran_i": float(moran.I), "expected_i": float(moran.EI), "p_sim": float(moran.p_sim), "z_sim": float(moran.z_sim)})
         rows.append(row)
     return pd.DataFrame(rows)

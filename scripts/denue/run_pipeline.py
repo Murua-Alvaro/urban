@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
-from pathlib import Path
 
 
 def run(*args: str) -> None:
@@ -35,8 +34,9 @@ def main() -> int:
     run(py, "scripts/denue/territorial_features.py", "--level", "ageb")
     if not args.skip_models:
         run(py, "scripts/denue/model_grid_dynamics.py")
+    run(py, "scripts/denue/generate_report.py")
 
-    print("\nDENUE pipeline completed successfully.")
+    print("\nDENUE pipeline completed successfully. Report: var/denue/report.md")
     return 0
 
 

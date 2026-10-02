@@ -1,4 +1,4 @@
-name: DENUE Full Pipeline
+name: DENUE Full Analysis
 
 on:
   workflow_dispatch:
@@ -12,9 +12,9 @@ on:
       - 'data/denue/raw/Growa_DENUE_Sinaloa_Historico_2010_2026.zip'
 
 jobs:
-  pipeline:
+  analysis:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,20 +25,25 @@ jobs:
       - run: pip install -e '.[dev]'
       - name: Test
         run: pytest -q
-      - name: Run pipeline
+      - name: Run verified EDA pipeline
         shell: bash
         run: |
           EXTRA=""
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.skip_moran }}" = "true" ]; then EXTRA="--skip-moran"; fi
           python scripts/denue/run_pipeline.py --through all $EXTRA
+      - name: Generate Mazatlan and state reports
+        run: python scripts/denue/report.py --municipality 012
+      - name: Run exploratory predictive models
+        run: python scripts/denue/model.py
       - uses: actions/upload-artifact@v4
         with:
-          name: denue-eda-reports
+          name: denue-full-analysis
           path: |
             var/denue/reports/
             var/denue/processed/eda_core/
             var/denue/processed/spatial_eda/polycentricity.parquet
             var/denue/processed/spatial_eda/global_moran.parquet
             var/denue/processed/feature_store/
+            var/denue/processed/models/
           if-no-files-found: warn
           retention-days: 14

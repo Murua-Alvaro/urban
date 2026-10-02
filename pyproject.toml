@@ -21,6 +21,7 @@ dependencies = [
   "shapely>=2.0",
   "libpysal>=4.12",
   "esda>=2.6",
+  "scikit-learn>=1.5",
 ]
 
 [project.optional-dependencies]

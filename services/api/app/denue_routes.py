@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Path, Query
 from sqlalchemy.exc import SQLAlchemyError
 
+from .denue_catalog_repository import list_municipalities
 from .denue_repository import (
     list_editions,
     municipality_grids,
@@ -27,6 +28,15 @@ def editions() -> dict:
     except SQLAlchemyError as exc:
         raise _db_unavailable(exc) from exc
     return {"count": len(rows), "editions": rows}
+
+
+@router.get("/municipalities")
+def municipalities() -> dict:
+    try:
+        rows = list_municipalities()
+    except SQLAlchemyError as exc:
+        raise _db_unavailable(exc) from exc
+    return {"count": len(rows), "municipalities": rows}
 
 
 @router.get("/quality")

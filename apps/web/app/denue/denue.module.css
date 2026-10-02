@@ -1,0 +1,26 @@
+.controls { display: grid; grid-template-columns: minmax(220px, .7fr) minmax(220px, .7fr) minmax(300px, 1fr); gap: 18px; align-items: end; margin-bottom: 16px; }
+.controls label { display: grid; gap: 8px; }
+.controls label > span, .provenance span { color: #78828e; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+.controls select { width: 100%; border: 1px solid #303741; background: #0c1014; color: #f2f4f6; border-radius: 8px; padding: 11px 12px; font: inherit; }
+.provenance { display: grid; gap: 8px; min-height: 62px; align-content: end; }
+.provenance strong { font-size: 13px; font-weight: 560; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+.kpis article { min-height: 126px; display: flex; flex-direction: column; justify-content: space-between; }
+.kpis span, .kpis small { color: #7f8995; font-size: 12px; }
+.kpis strong { font-size: 28px; letter-spacing: -.035em; font-weight: 650; }
+.section { margin-bottom: 16px; }
+.chart { display: block; width: 100%; height: auto; min-height: 220px; margin-top: 8px; }
+.axis { stroke: #333b45; stroke-width: 1; }
+.line { fill: none; stroke: #e5e9ed; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.point { fill: #aab3bd; }
+.breakPoint { fill: #f0f2f4; stroke: #0b0d10; stroke-width: 2; }
+.chartEmpty { color: #7e8792; padding: 48px 0; text-align: center; }
+.timelineLabels { display: flex; justify-content: space-between; color: #737d88; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.twoCols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.tableWrap { overflow: auto; margin-top: 18px; max-height: 520px; }
+.tableWrap table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.tableWrap th { position: sticky; top: 0; z-index: 1; background: #11151a; color: #79838f; text-align: left; font-weight: 550; padding: 9px 8px; border-bottom: 1px solid #303741; }
+.tableWrap td { padding: 9px 8px; border-bottom: 1px solid #20252b; white-space: nowrap; }
+.tableWrap th:not(:first-child), .tableWrap td:not(:first-child) { text-align: right; }
+@media (max-width: 1080px) { .controls { grid-template-columns: 1fr 1fr; } .provenance { grid-column: 1 / -1; } .kpis { grid-template-columns: 1fr 1fr; } .twoCols { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .controls, .kpis { grid-template-columns: 1fr; } }

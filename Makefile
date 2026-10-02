@@ -1,7 +1,7 @@
 PYTHON ?= python
 ROOT ?= var/denue
 
-.PHONY: install test denue-load denue-validate denue-clean denue-eda denue-spatial denue-features denue-all
+.PHONY: install test denue-load denue-validate denue-clean denue-eda denue-spatial denue-features denue-all denue-report denue-model denue-full
 
 install:
 	$(PYTHON) -m pip install -e '.[dev]'
@@ -30,3 +30,13 @@ denue-features:
 
 denue-all:
 	$(PYTHON) scripts/denue/run_pipeline.py --root $(ROOT) --through all
+
+denue-report: denue-all
+	$(PYTHON) scripts/denue/report.py --root $(ROOT) --municipality 012
+
+denue-model: denue-all
+	$(PYTHON) scripts/denue/model.py --root $(ROOT)
+
+denue-full: denue-all
+	$(PYTHON) scripts/denue/report.py --root $(ROOT) --municipality 012
+	$(PYTHON) scripts/denue/model.py --root $(ROOT)

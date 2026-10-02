@@ -1,0 +1,3 @@
+-r requirements-denue.txt
+statsmodels>=0.14
+scikit-learn>=1.5

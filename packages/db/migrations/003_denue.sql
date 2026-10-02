@@ -4,7 +4,7 @@
 
 CREATE TABLE IF NOT EXISTS denue_editions (
     source_edition text PRIMARY KEY,
-    dataset_id uuid REFERENCES datasets(id) ON DELETE SET NULL,
+    dataset_id uuid NOT NULL REFERENCES datasets(id) ON DELETE RESTRICT,
     edition_date date NOT NULL,
     is_rebenchmark boolean NOT NULL DEFAULT false,
     archive_sha256 text NOT NULL,
@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS denue_editions (
     created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS denue_editions_date_idx ON denue_editions(edition_date);
+CREATE INDEX IF NOT EXISTS denue_editions_dataset_idx ON denue_editions(dataset_id);
 
 CREATE TABLE IF NOT EXISTS denue_grid_geometries (
     municipality_code text NOT NULL,
@@ -34,7 +35,7 @@ CREATE TABLE IF NOT EXISTS denue_observations (
     ageb text NOT NULL,
     grid_id text NOT NULL,
     sector text NOT NULL,
-    size_band smallint,
+    size_band smallint NOT NULL,
     scian6 text NOT NULL,
     postal_code text NOT NULL,
     contact_flags smallint NOT NULL DEFAULT 0 CHECK (contact_flags BETWEEN 0 AND 7),
@@ -95,5 +96,18 @@ FROM denue_observations o
 JOIN denue_editions e USING (source_edition)
 GROUP BY o.source_edition, e.edition_date, e.is_rebenchmark;
 
+CREATE OR REPLACE VIEW denue_municipality_sector AS
+SELECT
+    o.source_edition,
+    e.edition_date,
+    o.municipality_code,
+    o.sector,
+    SUM(o.establishments)::bigint AS establishments
+FROM denue_observations o
+JOIN denue_editions e USING (source_edition)
+GROUP BY o.source_edition, e.edition_date, o.municipality_code, o.sector;
+
+COMMENT ON TABLE denue_editions IS
+'Canonical edition registry for the audited DENUE-derived archive. dataset_id points to the exact source archive registered in datasets.';
 COMMENT ON TABLE denue_observations IS
 'Audited aggregated DENUE-derived territorial panel. Rows are grouped combinations with establishments as a count weight; they are not establishment-level microdata.';

@@ -97,32 +97,67 @@ JOIN denue_editions e USING (source_edition)
 GROUP BY o.source_edition, e.edition_date
 ORDER BY e.edition_date;
 
--- 6) Grid stock transition table using actual edition ordering.
-WITH grid_stock AS (
-    SELECT
-        o.municipality_code,
-        o.grid_id,
-        e.edition_date,
+-- 6) Balanced grid stock transitions. Zeros are explicit, but only for editions
+-- in which the selected municipality is actually present in DENUE. This avoids
+-- fabricating pre-history for municipalities that appear as separate units later.
+WITH municipality_editions AS (
+    SELECT DISTINCT
         e.source_edition,
-        e.is_rebenchmark,
-        SUM(o.establishments)::bigint AS establishments
+        e.edition_date,
+        e.is_rebenchmark
     FROM denue_observations o
     JOIN denue_editions e USING (source_edition)
-    WHERE NOT o.missing_grid
-      AND o.municipality_code = :municipality_code
-    GROUP BY o.municipality_code, o.grid_id, e.edition_date, e.source_edition, e.is_rebenchmark
+    WHERE o.municipality_code = :municipality_code
+),
+grid_domain AS (
+    SELECT DISTINCT grid_id
+    FROM denue_observations
+    WHERE municipality_code = :municipality_code
+      AND NOT missing_grid
+),
+observed AS (
+    SELECT
+        o.source_edition,
+        o.grid_id,
+        SUM(o.establishments)::bigint AS establishments
+    FROM denue_observations o
+    WHERE o.municipality_code = :municipality_code
+      AND NOT o.missing_grid
+    GROUP BY o.source_edition, o.grid_id
+),
+balanced AS (
+    SELECT
+        :municipality_code::text AS municipality_code,
+        g.grid_id,
+        e.source_edition,
+        e.edition_date,
+        e.is_rebenchmark,
+        COALESCE(o.establishments, 0)::bigint AS establishments
+    FROM grid_domain g
+    CROSS JOIN municipality_editions e
+    LEFT JOIN observed o
+      ON o.source_edition = e.source_edition
+     AND o.grid_id = g.grid_id
 ),
 with_lags AS (
     SELECT *,
         LAG(establishments) OVER (PARTITION BY municipality_code, grid_id ORDER BY edition_date) AS previous_establishments,
         LAG(edition_date) OVER (PARTITION BY municipality_code, grid_id ORDER BY edition_date) AS previous_date
-    FROM grid_stock
+    FROM balanced
 )
 SELECT *,
     establishments - previous_establishments AS stock_change,
     CASE
         WHEN previous_establishments > 0 THEN 100.0 * (establishments::double precision / previous_establishments - 1.0)
         ELSE NULL
-    END AS growth_pct
+    END AS growth_pct,
+    CASE
+        WHEN previous_establishments IS NULL THEN 'first_observation'
+        WHEN previous_establishments = 0 AND establishments > 0 THEN 'activation'
+        WHEN previous_establishments > 0 AND establishments = 0 THEN 'deactivation'
+        WHEN previous_establishments > 0 AND establishments / previous_establishments::double precision > 1.10 THEN 'expanding'
+        WHEN previous_establishments > 0 AND establishments / previous_establishments::double precision < 0.90 THEN 'contracting'
+        ELSE 'stable'
+    END AS transition
 FROM with_lags
 ORDER BY grid_id, edition_date;

@@ -4,10 +4,12 @@ import argparse
 import json
 import os
 from pathlib import Path
+from uuid import UUID
 
 import psycopg
 
 ARCHIVE_SHA256 = "182c22a2a96189e47d4e0d6b5dfd2a34a09307cfa3af57b1503664cdecc1bff3"
+ARCHIVE_FILENAME = "Growa_DENUE_Sinaloa_Historico_2010_2026.zip"
 EXPECTED_FIELDS = ["ageb", "grid", "sector", "size", "class", "cp", "flags", "n"]
 EDITION_DATES = {
     "2010": "2010-07-01", "2011": "2011-03-01", "2012": "2012-06-01",
@@ -44,6 +46,42 @@ def apply_migration(conn: psycopg.Connection, migration: Path) -> None:
             cur.execute(sql)
 
 
+def ensure_dataset(conn: psycopg.Connection) -> UUID:
+    metadata = {
+        "coverage": "Sinaloa",
+        "edition_count": 25,
+        "first_edition": "2010",
+        "last_edition": "2026-05",
+        "classification": "derived_territorial_panel",
+        "not_establishment_level_raw": True,
+    }
+    with conn.transaction():
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO datasets
+                    (name, source_type, original_filename, sha256, status, metadata)
+                VALUES (%s, %s, %s, %s, 'validated', %s::jsonb)
+                ON CONFLICT (sha256) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    source_type = EXCLUDED.source_type,
+                    original_filename = EXCLUDED.original_filename,
+                    status = 'validated',
+                    metadata = datasets.metadata || EXCLUDED.metadata,
+                    updated_at = now()
+                RETURNING id
+                """,
+                (
+                    "DENUE Sinaloa Histórico 2010-2026",
+                    "denue_derived",
+                    ARCHIVE_FILENAME,
+                    ARCHIVE_SHA256,
+                    json.dumps(metadata, ensure_ascii=False),
+                ),
+            )
+            return cur.fetchone()[0]
+
+
 def load_grids(conn: psycopg.Connection, data: Path) -> int:
     payload = load_json(data / "cuadriculas.json")
     rows: list[tuple[str, str, str, str]] = []
@@ -75,14 +113,15 @@ def edition_existing_count(conn: psycopg.Connection, edition: str) -> int:
         return int(cur.fetchone()[0])
 
 
-def upsert_edition(conn: psycopg.Connection, edition: str, metadata: dict) -> None:
+def upsert_edition(conn: psycopg.Connection, dataset_id: UUID, edition: str, metadata: dict) -> None:
     with conn.cursor() as cur:
         cur.execute(
             """
             INSERT INTO denue_editions
-                (source_edition, edition_date, is_rebenchmark, archive_sha256, source_label, metadata)
-            VALUES (%s, %s, %s, %s, %s, %s::jsonb)
+                (source_edition, dataset_id, edition_date, is_rebenchmark, archive_sha256, source_label, metadata)
+            VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb)
             ON CONFLICT (source_edition) DO UPDATE SET
+                dataset_id = EXCLUDED.dataset_id,
                 edition_date = EXCLUDED.edition_date,
                 is_rebenchmark = EXCLUDED.is_rebenchmark,
                 archive_sha256 = EXCLUDED.archive_sha256,
@@ -91,6 +130,7 @@ def upsert_edition(conn: psycopg.Connection, edition: str, metadata: dict) -> No
             """,
             (
                 edition,
+                dataset_id,
                 EDITION_DATES[edition],
                 edition in REBENCHMARK,
                 ARCHIVE_SHA256,
@@ -100,14 +140,14 @@ def upsert_edition(conn: psycopg.Connection, edition: str, metadata: dict) -> No
         )
 
 
-def replace_edition(conn: psycopg.Connection, edition: str, payload: dict) -> tuple[int, int]:
+def replace_edition(conn: psycopg.Connection, dataset_id: UUID, edition: str, payload: dict) -> tuple[int, int]:
     establishment_count = 0
     row_count = 0
 
     # With autocommit=True this block is one independent all-or-nothing transaction
     # for the edition. A malformed municipality rolls back only this edition.
     with conn.transaction():
-        upsert_edition(conn, edition, {"derived_territorial_panel": True})
+        upsert_edition(conn, dataset_id, edition, {"derived_territorial_panel": True})
         with conn.cursor() as cur:
             cur.execute("DELETE FROM denue_observations WHERE source_edition = %s", (edition,))
             with cur.copy(
@@ -151,9 +191,13 @@ def replace_edition(conn: psycopg.Connection, edition: str, payload: dict) -> tu
     return row_count, establishment_count
 
 
-def verify_database(conn: psycopg.Connection) -> None:
+def verify_database(conn: psycopg.Connection, dataset_id: UUID) -> None:
     expected = {"2010": 94_961, "2015-02": 107_458, "2024-11": 135_239, "2026-05": 138_882}
     with conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM denue_editions WHERE dataset_id = %s", (dataset_id,))
+        edition_count = int(cur.fetchone()[0])
+        if edition_count != 25:
+            raise ValueError(f"Edition registry mismatch: {edition_count} != 25")
         for edition, total in expected.items():
             cur.execute(
                 "SELECT COALESCE(SUM(establishments), 0) FROM denue_observations WHERE source_edition = %s",
@@ -191,6 +235,9 @@ def main() -> int:
     with psycopg.connect(args.database_url, autocommit=True) as conn:
         if args.apply_migration:
             apply_migration(conn, args.migration)
+        dataset_id = ensure_dataset(conn)
+        print(f"Dataset registry id: {dataset_id}")
+
         if not args.skip_grids:
             grids = load_grids(conn, data)
             print(f"Upserted {grids:,} municipality-grid geometries")
@@ -198,14 +245,17 @@ def main() -> int:
         for edition in sorted(EDITION_DATES, key=lambda key: EDITION_DATES[key]):
             current = edition_existing_count(conn, edition)
             if current and not args.replace:
+                # Even a skipped edition is re-linked to the audited dataset and canonical metadata.
+                with conn.transaction():
+                    upsert_edition(conn, dataset_id, edition, {"derived_territorial_panel": True})
                 print(f"skip {edition}: already stores {current:,} establishments")
                 continue
             payload = load_json(data / "ediciones" / f"{edition}.json")
-            rows, establishments = replace_edition(conn, edition, payload)
+            rows, establishments = replace_edition(conn, dataset_id, edition, payload)
             print(f"loaded {edition}: {rows:,} grouped rows / {establishments:,} establishments")
 
-        verify_database(conn)
-        print("Database smoke totals verified.")
+        verify_database(conn, dataset_id)
+        print("Database smoke totals and provenance verified.")
     return 0
 
 
